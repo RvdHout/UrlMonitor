@@ -13,6 +13,8 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Security.Cryptography;
 
+using HtmlAgilityPack;
+
 #endregion Imports
 
 namespace UrlMonitor
@@ -34,10 +36,47 @@ namespace UrlMonitor
         private bool run = true;
         private int threadCount;
 
+        /// <summary>
+        /// Finds the next unused unique (numbered) filename.
+        /// </summary>
+        /// <param name="fileName">Name of the file.</param>
+        /// <param name="inUse">Function that will determine if the name is already in use</param>
+        /// <returns>The original filename if it wasn't already used, or the filename with " (n)"
+        /// added to the name if the original filename is already in use.</returns>
+        private static string NextUniqueFilename(string fileName, Func<string, bool> inUse)
+        {
+            if (!inUse(fileName))
+            {
+                // this filename has not been seen before, return it unmodified
+                return fileName;
+            }
+            // this filename is already in use, add " (n)" to the end
+            var name = Path.GetFileNameWithoutExtension(fileName);
+            var extension = Path.GetExtension(fileName);
+            if (name == null)
+            {
+                throw new Exception("File name without extension returned null.");
+            }
+            const int max = 9999;
+            for (var i = 1; i < max; i++)
+            {
+                var nextUniqueFilename = string.Format("{0} ({1}){2}", name, i, extension);
+                if (!inUse(nextUniqueFilename))
+                {
+                    return nextUniqueFilename;
+                }
+            }
+            throw new Exception(string.Format("Too many files by this name. Limit: {0}", max));
+        }
+
         private UrlResponse GetResponseForUrl(MonitoredUrl url)
         {
             DateTime start = DateTime.UtcNow;
             HttpWebRequest request = HttpWebRequest.Create(url.Path) as HttpWebRequest;
+            // Set the  'Timeout' property of the HttpWebRequest to default value 100,000 milliseconds (100 seconds).
+            request.Timeout = 100000;
+            request.KeepAlive = false;
+            request.ReadWriteTimeout = 100000;
             if (string.IsNullOrWhiteSpace(url.Method))
             {
                 url.Method = "GET";
@@ -74,14 +113,46 @@ namespace UrlMonitor
 
             HttpWebResponse response = request.GetResponse() as HttpWebResponse;
             Stream responseStream = response.GetResponseStream();
-            MemoryStream ms = new MemoryStream();
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = responseStream.Read(buffer, 0, buffer.Length)) > 0)
+            string data;
+            using (StreamReader reader = new StreamReader(responseStream))
             {
-                ms.Write(buffer, 0, count);
+                responseStream.Flush();
+                data = reader.ReadToEnd();
+            }        
+#if DEBUG
+            Log.Write(LogLevel.Info, string.Format("url:{0}", url.Path));
+#endif
+            var doc = new HtmlDocument();
+            doc.LoadHtml(data);
+            HtmlNode RootNode = doc.DocumentNode;
+            HtmlNodeCollection nodes = new HtmlNodeCollection(RootNode);
+            if (!string.IsNullOrEmpty(url.FilterElements))
+            {
+#if DEBUG
+                Log.Write(LogLevel.Info, string.Format("FilterElements:{0}", url.FilterElements));
+#endif
+                string[] words = url.FilterElements.Split(',');
+                foreach (string word in words)
+                {
+                    doc.DocumentNode.SelectNodes(word)?.ToList().ForEach(a => a.Remove());
+                }
             }
-            string responseBody = Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+#if DEBUG
+            string filename = url.Path.Split('/').Last() + ".html";
+            string folder = "";
+            var safeName = NextUniqueFilename(filename, f => File.Exists(Path.Combine(folder, f)));
+            TextWriter tw = File.CreateText(safeName);
+            doc.Save(tw);
+            tw.Close();
+#endif
+
+            // From string to byte array
+            byte[] buffer = Encoding.UTF8.GetBytes(RootNode.OuterHtml);
+            // From byte array to string
+            string responseBody = Encoding.UTF8.GetString(buffer, 0, buffer.Length);
+#if DEBUG
+            //Console.Write(responseBody);
+#endif
             TimeSpan duration = (DateTime.UtcNow - start);
             string[] headers = new string[response.Headers.Count];
             int i = 0;
@@ -89,7 +160,12 @@ namespace UrlMonitor
             {
                 headers[i++] = key + ":" + response.Headers.Get(key);
             }
-            byte[] md5 = new MD5CryptoServiceProvider().ComputeHash(ms.GetBuffer(), 0, (int)ms.Length);
+            byte[] md5 = new MD5CryptoServiceProvider().ComputeHash(buffer, 0, buffer.Length);
+#if DEBUG
+            var md51 = md5[0] | md5[1] << 8 | md5[2] << 16 | md5[3] << 24;
+            var md52 = md5[4] | md5[5] << 8 | md5[6] << 16 | md5[7] << 24;
+            Log.Write(LogLevel.Info, string.Format("md51:{0} md52:{1}", md51, md52));
+#endif
             return new UrlResponse
             {
                 MD51 = md5[0] | md5[1] << 8 | md5[2] << 16 | md5[3] << 24,
@@ -208,13 +284,18 @@ namespace UrlMonitor
             }
             catch (Exception ex)
             {
-                string msg = string.Format("Error accessing url {0}, error: {1}", url.Path, ex);
+#if DEBUG
+                string msg = string.Format("Error accessing url: {0}\r\nError: {1}", url.Path, ex);
+#else
+                string msg = string.Format("Error accessing url: {0}\r\nError: {1}\r\n", url.Path, ex.Message);
+#endif
                 Log.Write(LogLevel.Error, msg);
 
                 WebException webException = ex as WebException;
                 if (webException != null)
                 {
-                    msg += ", status code: " + ((HttpWebResponse)webException.Response).StatusCode.ToString("D");
+                    HttpWebResponse webResponse = (HttpWebResponse)webException.Response;
+                    msg += string.Format("Status code: {0}", webResponse.StatusCode.ToString("D"));
                     SendEmail(url, msg);
                 }
             }
@@ -231,7 +312,7 @@ namespace UrlMonitor
             {
                 while (run)
                 {
-                    MonitoredUrl[] urls = config.UrlSet.Where(u => !u.InProcess && (DateTime.UtcNow - u.LastCheck) > u.Frequency).ToArray();
+                    MonitoredUrl[] urls = config.UrlSet.Where(u => u.Enabled && !u.InProcess && (DateTime.UtcNow - u.LastCheck) > u.Frequency).ToArray();
                     foreach (MonitoredUrl url in urls)
                     {
                         Interlocked.Increment(ref threadCount);

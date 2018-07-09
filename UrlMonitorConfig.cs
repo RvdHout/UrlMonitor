@@ -25,6 +25,10 @@ namespace UrlMonitor
         public string MismatchMessage;
         public bool AlertIfChanged;
         public string EmailAddresses;
+        public string FilterElements;
+
+        [XmlAttribute("enabled")]
+        public bool Enabled { get; set; }
 
         [XmlArray("Headers")]
         [XmlArrayItem("Header")]
