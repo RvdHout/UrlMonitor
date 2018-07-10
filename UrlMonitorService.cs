@@ -119,40 +119,24 @@ namespace UrlMonitor
                 responseStream.Flush();
                 data = reader.ReadToEnd();
             }        
-#if DEBUG
-            Log.Write(LogLevel.Info, string.Format("url:{0}", url.Path));
-#endif
+			
             var doc = new HtmlDocument();
             doc.LoadHtml(data);
             HtmlNode RootNode = doc.DocumentNode;
             HtmlNodeCollection nodes = new HtmlNodeCollection(RootNode);
             if (!string.IsNullOrEmpty(url.FilterElements))
             {
-#if DEBUG
-                Log.Write(LogLevel.Info, string.Format("FilterElements:{0}", url.FilterElements));
-#endif
                 string[] words = url.FilterElements.Split(',');
                 foreach (string word in words)
                 {
                     doc.DocumentNode.SelectNodes(word)?.ToList().ForEach(a => a.Remove());
                 }
             }
-#if DEBUG
-            string filename = url.Path.Split('/').Last() + ".html";
-            string folder = "";
-            var safeName = NextUniqueFilename(filename, f => File.Exists(Path.Combine(folder, f)));
-            TextWriter tw = File.CreateText(safeName);
-            doc.Save(tw);
-            tw.Close();
-#endif
 
             // From string to byte array
             byte[] buffer = Encoding.UTF8.GetBytes(RootNode.OuterHtml);
             // From byte array to string
             string responseBody = Encoding.UTF8.GetString(buffer, 0, buffer.Length);
-#if DEBUG
-            //Console.Write(responseBody);
-#endif
             TimeSpan duration = (DateTime.UtcNow - start);
             string[] headers = new string[response.Headers.Count];
             int i = 0;
@@ -161,11 +145,6 @@ namespace UrlMonitor
                 headers[i++] = key + ":" + response.Headers.Get(key);
             }
             byte[] md5 = new MD5CryptoServiceProvider().ComputeHash(buffer, 0, buffer.Length);
-#if DEBUG
-            var md51 = md5[0] | md5[1] << 8 | md5[2] << 16 | md5[3] << 24;
-            var md52 = md5[4] | md5[5] << 8 | md5[6] << 16 | md5[7] << 24;
-            Log.Write(LogLevel.Info, string.Format("md51:{0} md52:{1}", md51, md52));
-#endif
             return new UrlResponse
             {
                 MD51 = md5[0] | md5[1] << 8 | md5[2] << 16 | md5[3] << 24,

@@ -39,19 +39,6 @@ namespace UrlMonitor
             UrlMonitorService svc = new UrlMonitorService();
             svc.Start(args);
             Console.WriteLine("Press ENTER to quit");
-#if DEBUG
-            DirectoryInfo di = new DirectoryInfo(Environment.CurrentDirectory);
-            FileInfo[] files = di.GetFiles("*.html").Where(p => p.Extension == ".html").ToArray();
-            foreach (FileInfo file in files)
-            {
-                try
-                {
-                    file.Attributes = FileAttributes.Normal;
-                    File.Delete(file.FullName);
-                }
-                catch { }
-            }
-#endif
             Console.ReadLine();
             svc.Stop();
         }
