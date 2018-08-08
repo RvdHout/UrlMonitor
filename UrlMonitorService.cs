@@ -39,6 +39,7 @@ namespace UrlMonitor
         private UrlResponse GetResponseForUrl(MonitoredUrl url)
         {
             DateTime start = DateTime.UtcNow;
+            System.Net.ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; //TLS 1.2
             HttpWebRequest request = HttpWebRequest.Create(url.Path) as HttpWebRequest;
             // Set the  'Timeout' property of the HttpWebRequest to default value 100,000 milliseconds (100 seconds).
             request.Timeout = 100000;
