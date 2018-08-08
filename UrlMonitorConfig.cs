@@ -19,15 +19,16 @@ namespace UrlMonitor
         public string Method;
         public string PostText;
         public byte[] PostBytes;
+        public bool AllowRedirects;
+        public string FilterElements;
         public string StatusCodeRegex;
         public string HeadersRegex;
         public string BodyRegex;
         public string MismatchMessage;
         public bool AlertIfChanged;
         public string EmailAddresses;
-        public string FilterElements;
-
-        [XmlAttribute("enabled")]
+        
+        [XmlAttribute("Enabled")]
         public bool Enabled { get; set; }
 
         [XmlArray("Headers")]

@@ -42,8 +42,10 @@ namespace UrlMonitor
             HttpWebRequest request = HttpWebRequest.Create(url.Path) as HttpWebRequest;
             // Set the  'Timeout' property of the HttpWebRequest to default value 100,000 milliseconds (100 seconds).
             request.Timeout = 100000;
-            request.KeepAlive = false;
+            request.KeepAlive = true;
             request.ReadWriteTimeout = 100000;
+            if (!url.AllowRedirects)
+                request.AllowAutoRedirect = false;
             if (string.IsNullOrWhiteSpace(url.Method))
             {
                 url.Method = "GET";
